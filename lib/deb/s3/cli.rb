@@ -103,6 +103,44 @@ class Deb::S3::CLI < Thor
   :aliases  => "-C",
   :desc     => "Add cache-control headers to S3 objects"
 
+  desc "fixup", "Fixup for multiple newlines"
+
+  option :arch,
+  :type     => :string,
+  :aliases  => "-a",
+  :desc     => "The architecture of the package in the APT repository."
+
+  
+
+  def fixup
+    # configure AWS::S3
+    configure_s3_client
+
+    # retrieve the existing manifests
+    log("Retrieving existing manifests")
+    release  = Deb::S3::Release.retrieve(options[:codename], options[:origin], options[:suite], options[:cache_control])
+    manifests = {}
+    release.architectures.each do |arch|
+      manifests[arch] = Deb::S3::Manifest.retrieve(options[:codename], component, arch, options[:cache_control])
+    end
+
+    manifests.each_value do |manifest|
+      manifest.packages.each do |package|
+        package.description.gsub!(/[\n][\n]+/, "\n\n")
+      end
+    end
+
+    # upload the manifest
+    log("Uploading packages and new manifests to S3")
+    manifests.each_value do |manifest|
+      manifest.write_to_s3 { |f| sublog("Transferring #{f}") }
+      release.update_manifest(manifest)
+    end
+    release.write_to_s3 { |f| sublog("Transferring #{f}") }
+
+    log("Update complete.")
+  end
+
   desc "upload FILES",
   "Uploads the given files to a S3 bucket as an APT repository."
 
